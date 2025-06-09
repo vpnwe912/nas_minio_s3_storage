@@ -17,36 +17,57 @@ $this->title = 'Редактировать политику «'.$model->name.'»
         <!-- шаблон для JS -->
         <div class="statement-template d-none">
             <hr>
-            <?= Html::textInput('DUMMY[sid]',     null, ['class'=>'form-control','placeholder'=>'Sid']) ?>
-            <?= Html::textarea('DUMMY[comment]', null, ['class'=>'form-control','placeholder'=>'Комментарий']) ?>
             <?= Html::dropDownList('DUMMY[bucket]', null, array_combine($allBuckets,$allBuckets), ['class'=>'form-select']) ?>
             <?= Html::textInput('DUMMY[prefix]',  '',   ['class'=>'form-control','placeholder'=>'Префикс внутри бакета']) ?>
-            <?= Html::checkboxList('DUMMY[actions][]', [], [
-                    'GetObject'=>'Get','PutObject'=>'Put','ListBucket'=>'List'
-                ], ['class'=>'form-check']
+            <?= Html::checkboxList(
+                'DUMMY[actions][]',
+                [],
+                $actionsList,
+                ['class'=>'form-check']
             ) ?>
             <button type="button" class="btn btn-danger remove-stmt">Удалить</button>
         </div>
 
         <!-- уже существующие -->
         <?php foreach ($model->statements as $i => $stmt): ?>
-        <div class="statement">
-            <hr>
-            <?= Html::textInput("PolicyForm[statements][$i][sid]",     $stmt['sid'],     ['class'=>'form-control']) ?>
-            <?= Html::textarea("PolicyForm[statements][$i][comment]", $stmt['comment'], ['class'=>'form-control']) ?>
-            <?= Html::dropDownList("PolicyForm[statements][$i][bucket]",
-                   $stmt['bucket'], array_combine($allBuckets,$allBuckets),
-                   ['class'=>'form-select']) ?>
-            <?= Html::textInput("PolicyForm[statements][$i][prefix]",
-                   $stmt['prefix'], ['class'=>'form-control']) ?>
-            <?= Html::checkboxList("PolicyForm[statements][$i][actions]",
-                   $stmt['actions'],           // уже массив plain-имен
-                   ['GetObject'=>'Get','PutObject'=>'Put','ListBucket'=>'List'],
-                   ['class'=>'form-check']
-            ) ?>
-            <button type="button" class="btn btn-danger remove-stmt">Удалить</button>
-        </div>
-        <?php endforeach; ?>
+    <div class="statement">
+        <hr>
+        <?php if ($i === 0): ?>
+            <?= Html::textInput(
+                   "PolicyForm[statements][$i][sid]",
+                   $stmt['sid'],
+                   ['class'=>'form-control','placeholder'=>'Sid']
+               ) ?>
+            <?= Html::textarea(
+                   "PolicyForm[statements][$i][comment]",
+                   $stmt['comment'],
+                   ['class'=>'form-control','placeholder'=>'Комментарий']
+               ) ?>
+        <?php endif; ?>
+
+        <?= Html::dropDownList(
+               "PolicyForm[statements][$i][bucket]",
+               $stmt['bucket'],
+               array_combine($allBuckets,$allBuckets),
+               ['class'=>'form-select']
+           ) ?>
+
+        <?= Html::textInput(
+               "PolicyForm[statements][$i][prefix]",
+               $stmt['prefix'],
+               ['class'=>'form-control','placeholder'=>'Префикс внутри бакета']
+           ) ?>
+
+        <?= Html::checkboxList(
+               "PolicyForm[statements][$i][actions]",
+               $stmt['actions'] ?? [],
+               $actionsList,
+               ['class'=>'form-check']
+           ) ?>
+
+        <button type="button" class="btn btn-danger remove-stmt">Удалить</button>
+    </div>
+<?php endforeach; ?>
     </div>
 
     <button type="button" id="add-stmt" class="btn btn-secondary mt-2">Добавить Statement</button>
@@ -55,22 +76,39 @@ $this->title = 'Редактировать политику «'.$model->name.'»
 <?php ActiveForm::end(); ?>
 
 <?php
-// JS-код для динамического добавления/удаления блоков
 $this->registerJs(<<<'JS'
-    var container = document.getElementById('statements');
-    document.getElementById('add-stmt').onclick = function(){
-        var tmpl  = document.querySelector('.statement-template'),
-            clone = tmpl.cloneNode(true),
-            idx   = container.querySelectorAll('.statement').length;
+    const container = document.getElementById('statements');
+    document.getElementById('add-stmt').addEventListener('click', function() {
+        // клонируем шаблон
+        const tmpl  = document.querySelector('.statement-template');
+        const clone = tmpl.cloneNode(true);
+        const idx   = container.querySelectorAll('.statement').length;
+
+        // делаем его видимым и помечаем как statement
         clone.classList.remove('d-none','statement-template');
         clone.classList.add('statement');
-        clone.innerHTML = clone.innerHTML.replace(/DUMMY/g,'PolicyForm[statements]['+idx+']');
-        container.append(clone);
-    };
-    container.addEventListener('click', function(e){
+
+        // перебираем все input/textarea/select внутри клона
+        clone.querySelectorAll('input[name], textarea[name], select[name]').forEach(el => {
+            // старое имя, например "DUMMY[sid]" или "DUMMY[actions][]"
+            const oldName = el.getAttribute('name');
+            // новое имя: "PolicyForm[statements][<idx>][sid]" и т.п.
+            const newName = oldName.replace(
+                /^DUMMY/,
+                'PolicyForm[statements][' + idx + ']'
+            );
+            el.setAttribute('name', newName);
+        });
+
+        container.appendChild(clone);
+    });
+
+    // кнопка «Удалить»
+    container.addEventListener('click', e => {
         if (e.target.matches('.remove-stmt')) {
             e.target.closest('.statement').remove();
         }
     });
 JS
 );
+?>

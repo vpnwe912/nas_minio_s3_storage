@@ -11,14 +11,19 @@ use yii\helpers\Html;
 
 <?= GridView::widget([
     'dataProvider' => new \yii\data\ArrayDataProvider([
-        'allModels' => $policies,
-        'pagination'=> false,
+        'allModels'  => $policies,
+        'pagination' => false,
     ]),
     'columns' => [
         'policy',
         [
-            'class' => 'yii\grid\ActionColumn',
-            'template' => '{update} {delete}',
+            'attribute' => 'comments',
+            'label'     => 'Комментарии',
+            'format'    => 'ntext',  // многострочный текст
+        ],
+        [
+            'class'   => 'yii\grid\ActionColumn',
+            'template'=> '{update} {delete}',
             'buttons' => [
                 'update' => fn($url,$model) =>
                     Html::a('✎', ['update','name'=>$model['policy']]),
@@ -30,3 +35,4 @@ use yii\helpers\Html;
         ],
     ],
 ]) ?>
+

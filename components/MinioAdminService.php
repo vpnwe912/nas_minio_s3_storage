@@ -322,6 +322,7 @@ public function listPolicies(): array
             return null;
         }
         $decoded = json_decode(implode("\n", $out), true);
+        file_put_contents(Yii::getAlias('@runtime')."/debug-{$name}.json", implode("\n",$out));
         return $decoded['policyInfo']['Policy'] ?? null;
     }
 
@@ -353,7 +354,7 @@ public function listPolicies(): array
         }
         return true;
     }
-    
+
     /** Создать политику */
     public function createPolicy(string $name, array $statements): bool
     {
