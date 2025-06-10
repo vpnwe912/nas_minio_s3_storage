@@ -69,6 +69,14 @@
                                 || (Yii::$app->controller->id === 'object' && in_array(Yii::$app->controller->action->id, ['browse', 'upload', 'create', 'delete'])),
                                 'icon' => ''
                             ],
+                            [
+                                'label' => 'MinIO Config rclone', 
+                                'url' => ['minio-config/index'], 
+                                'active' =>
+                                Yii::$app->controller->id === 'minio-config'
+                                || (Yii::$app->controller->id === 'object' && in_array(Yii::$app->controller->action->id, ['browse', 'update', 'create', 'delete'])),
+                                'icon' => ''
+                            ],
                         ]
                     ],
 
