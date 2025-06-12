@@ -4,6 +4,9 @@
 /* @var $content string */
 
 use yii\helpers\Html;
+use app\assets\AppAsset;
+
+AppAsset::register($this);
 
 \hail812\adminlte3\assets\FontAwesomeAsset::register($this);
 \hail812\adminlte3\assets\AdminLteAsset::register($this);

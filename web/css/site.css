@@ -1,4 +1,4 @@
-main > .container {
+/* main > .container {
     padding: 70px 15px 20px;
 }
 
@@ -83,4 +83,108 @@ a.desc:after {
 
 .form-group {
     margin-bottom: 1rem;
+} */
+
+/* Стили для формы политик */
+/* .statement-item {
+    position: relative;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    margin-bottom: 1rem;
+    padding: 1rem;
 }
+
+.statement-item .remove-statement {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+}
+
+.checkbox-list {
+    padding: 0.5rem 0;
+}
+
+.checkbox-list .form-check {
+    display: inline-block;
+    margin-right: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+
+.card {
+    margin-bottom: 1.5rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+    padding: 0.75rem 1.25rem;
+}
+
+.card-header h1, 
+.card-header h2, 
+.card-header h3, 
+.card-header h4 {
+    margin-bottom: 0;
+    font-size: 1.25rem;
+}
+
+
+.table th {
+    background-color: #f8f9fa;
+}
+
+
+.table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+
+.btn-group-sm > .btn, .btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    border-radius: 0.2rem;
+}
+
+
+.btn i {
+    margin-right: 0.25rem;
+}
+
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+
+.help-block {
+    color: #dc3545;
+    font-size: 0.875rem;
+    margin-top: 0.25rem;
+}
+
+
+@media (max-width: 767.98px) {
+    .card-header {
+        padding: 0.5rem;
+    }
+    
+    .card-header .float-right {
+        float: none !important;
+        margin-top: 0.5rem;
+    }
+    
+    .btn {
+        display: block;
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+    
+    .btn-group > .btn {
+        display: inline-block;
+        width: auto;
+    }
+} */

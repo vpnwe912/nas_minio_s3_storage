@@ -12,8 +12,6 @@ return [
         'ListBucket'  => 'List Bucket',
         'DeleteObject' => 'Delete Files',
         'CopyObject' => 'Copy allows you to copy an object within S3 Files is Bucket',
-        'CreateBucket' => 'Create Bucket',
-        'DeleteBucket' => 'Delete Bucket',
-        // при необходимости добавляйте сюда новые S3-операции
+
     ],
 ];

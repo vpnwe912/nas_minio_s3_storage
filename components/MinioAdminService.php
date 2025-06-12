@@ -147,34 +147,41 @@ public function listUsers(): array
         $esc   = array_map('escapeshellarg', $parts);
         $cmd   = implode(' ', $esc) . ' 2>&1';
 
-        exec($cmd, $out, $code);
-        if ($code !== 0) {
-            Yii::error("mc admin group add failed (cmd: {$cmd}):\n" . implode("\n", $out));
-        }
-        return $code === 0;
+        return $this->exec($cmd, 'Не удалось создать группу') !== false;
     }
 
     /** Удалить группу */
     public function deleteGroup(string $group): bool
     {
-        exec("mc admin group remove {$this->alias} {$group}", $out, $code);
-        return $code === 0;
+        $cmd = sprintf('mc admin group remove %s %s 2>&1',
+            escapeshellarg($this->alias),
+            escapeshellarg($group)
+        );
+        return $this->exec($cmd, 'Не удалось удалить группу') !== false;
     }
 
     /** Добавить пользователя в группу */
     public function addUserToGroup(string $group, string $user): bool
     {
         // mc admin group add <alias> <group> <member>
-        exec("mc admin group add {$this->alias} {$group} {$user}", $out, $code);
-        return $code === 0;
+        $cmd = sprintf('mc admin group add %s %s %s 2>&1',
+            escapeshellarg($this->alias),
+            escapeshellarg($group),
+            escapeshellarg($user)
+        );
+        return $this->exec($cmd, 'Не удалось добавить пользователя в группу') !== false;
     }
 
     /** Удалить пользователя из группы */
     public function removeUserFromGroup(string $group, string $user): bool
     {
         // mc admin group remove <alias> <group> <member>
-        exec("mc admin group remove {$this->alias} {$group} {$user}", $out, $code);
-        return $code === 0;
+        $cmd = sprintf('mc admin group remove %s %s %s 2>&1',
+            escapeshellarg($this->alias),
+            escapeshellarg($group),
+            escapeshellarg($user)
+        );
+        return $this->exec($cmd, 'Не удалось удалить пользователя из группы') !== false;
     }
 
     /**
@@ -189,11 +196,7 @@ public function listUsers(): array
             escapeshellarg($policy),
             escapeshellarg($group)
         );
-        exec($cmd, $out, $code);
-        if ($code !== 0) {
-            Yii::error("mc admin policy attach failed (cmd: {$cmd}):\n" . implode("\n", $out));
-        }
-        return $code === 0;
+        return $this->exec($cmd, 'Не удалось назначить политику группе') !== false;
     }
 
     /**
@@ -208,11 +211,7 @@ public function listUsers(): array
             escapeshellarg($policy),
             escapeshellarg($group)
         );
-        exec($cmd, $out, $code);
-        if ($code !== 0) {
-            Yii::error("mc admin policy detach failed (cmd: {$cmd}):\n" . implode("\n", $out));
-        }
-        return $code === 0;
+        return $this->exec($cmd, 'Не удалось снять политику с группы') !== false;
     }
 
     /**
@@ -282,200 +281,171 @@ public function listUsers(): array
 
     // --- Политики ---
 
-/**
- * Список политик: [['policy'=>'readonly'], …]
- *
- * @return array
- */
-public function listPolicies(): array
-{
-    exec("mc admin policy list {$this->alias}", $out, $code);
-    if ($code !== 0) {
-        Yii::error("listPolicies failed (code={$code})");
-        return [];
-    }
-
-    $res = [];
-    foreach ($out as $line) {
-        $line = trim($line);
-        if ($line === '' || mb_strtolower($line) === 'name') {
-            continue;
-        }
-        $res[] = ['policy' => $line];
-    }
-    return $res;
-}
-
-
-    /**
-     * Возвращает массив Policy (Version + Statement + …) или null.
-     */
-    public function getPolicyBody(string $name): ?array
+    public function listPolicies()
     {
-        exec(
-          sprintf('mc admin policy info "%s" "%s" --json', $this->alias, $name)
-          . ' 2>&1',
-          $out, $code
+        $cmd = sprintf('mc admin policy list %s 2>&1', 
+            escapeshellarg($this->alias)
         );
-        if ($code !== 0) {
-            Yii::error("mc admin policy info returned code $code:\n".implode("\n", $out));
-            return null;
-        }
-        $decoded = json_decode(implode("\n", $out), true);
-        file_put_contents(Yii::getAlias('@runtime')."/debug-{$name}.json", implode("\n",$out));
-        return $decoded['policyInfo']['Policy'] ?? null;
-    }
+        
+        $output = $this->exec($cmd, 'Ошибка получения списка политик');
+        if ($output === false) return [];
 
-        /**
-     * Создаёт политику (используется и для обновления).
-     */
-    public function putPolicy(string $name, array $statements): bool
+        // var_dump($output); die();
+        
+        return array_filter(array_map('trim', $output), function($line) {
+            return $line !== '' && strtolower($line) !== 'name';
+        });
+    }
+    
+    public function getPolicy($name)
     {
-        $policy = [
-            'Version'   => '2012-10-17',
-            'Statement' => $statements,
+        $cmd = sprintf('mc admin policy info %s %s --json 2>&1',
+            escapeshellarg($this->alias),
+            escapeshellarg($name)
+        );
+        
+        $result = $this->exec($cmd, 'Ошибка получения политики');
+        if ($result === false) return null;
+        
+        $data = json_decode(implode("\n", $result), true);
+        return $data['policyInfo']['Policy'] ?? null;
+    }
+    
+
+
+    // -------------------- start savePolicy --------------------
+
+
+
+
+
+
+
+
+    public function savePolicy($name, $model)
+    {
+            $policy = [
+            'Version' => '2012-10-17',
+            'Statement' => []
         ];
-        $tmp = Yii::getAlias('@runtime') . "/minio-policy-{$name}.json";
-        file_put_contents($tmp, json_encode($policy, JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT));
+        $debugDir = __DIR__ . '/../runtime/minio-police';
+        if (!is_dir($debugDir)) mkdir($debugDir, 0777, true);
+    
+        $bucket = trim($model->bucket);
+        $folders = array_values($model->folders);
+        $actionsList = array_values($model->actions);
+    
+        // ListBucket
+        $allPrefixes = [];
+        foreach ($folders as $folder) {
+            $allPrefixes[] = trim($folder, '/');
+        }
+        $sidList = "List" . ucfirst($bucket) . (count($allPrefixes) > 1 ? "Folders" : "Folder")
+            . "_" . substr(md5(implode(',', $allPrefixes)), 0, 8);
+    
+        $policy['Statement'][] = [
+            'Sid' => $sidList,
+            'Effect' => "Allow",
+            'Action' => ["s3:ListBucket"],
+            'Resource' => ["arn:aws:s3:::$bucket"],
+            'Condition' => [
+                'StringLike' => [
+                    's3:prefix' => array_map(fn($p) => "$p/*", $allPrefixes)
+                ]
+            ]
+        ];
+    
+        // Group object-actions per unique set
+        $objectActionGroups = [];
+        foreach ($folders as $idx => $folder) {
+            $folder = trim($folder, '/');
+            $actions = $actionsList[$idx] ?? [];
+            $objActions = array_values(array_diff($actions, ['s3:ListBucket']));
+            if (!$objActions) continue;
+            $key = implode(',', $objActions);
+            if (!isset($objectActionGroups[$key])) $objectActionGroups[$key] = [];
+            $objectActionGroups[$key][] = $folder;
+        }
+    
+        foreach ($objectActionGroups as $actionsKey => $prefixes) {
+            $actionsArr = explode(',', $actionsKey);
+            $resources = [];
+            foreach ($prefixes as $prefix) {
+                $resources[] = "arn:aws:s3:::$bucket/$prefix/*";
+            }
+            $policy['Statement'][] = [
+                'Sid' => 'Access' . ucfirst($bucket) . (count($prefixes) > 1 ? "Folders" : "Folder")
+                    . "_" . substr(md5($actionsKey . implode(',', $prefixes)), 0, 8),
+                'Effect' => 'Allow',
+                'Action' => $actionsArr,
+                'Resource' => $resources,
+            ];
+        }
+    
+        // DEBUG
+        file_put_contents($debugDir . '/debug_policy.json', json_encode($policy, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        $tmpFile = tempnam(sys_get_temp_dir(), 'minio_policy_');
+        file_put_contents($tmpFile, json_encode($policy, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    
+        // Сохраняем комментарий (один на всю политику)
+        \app\models\PolicyMeta::savePolicyComment($name, $model->comment);
+    
+        try {
+            $cmd = sprintf('mc admin policy create %s %s %s 2>&1',
+                escapeshellarg($this->alias),
+                escapeshellarg($name),
+                escapeshellarg($tmpFile)
+            );
+            $res = $this->exec($cmd, 'Ошибка сохранения политики') !== false;
+            return $res;
+        } finally {
+            @unlink($tmpFile);
+        }
+    }
+    
+    
+    
 
-        // Для обновления сначала удаляем старую
-        exec(sprintf('mc admin policy remove "%s" "%s"', $this->alias, $name) . ' 2>&1', $_, $_);
-        // Затем создаём новую
-        exec(
-          sprintf('mc admin policy create "%s" "%s" "%s"', $this->alias, $name, $tmp)
-          . ' 2>&1',
-          $out, $code
+
+    
+    
+    
+
+    // -------------------- end savePolicy --------------------
+    
+
+    public function saveMetaComments($policyName, $metaToSave)
+    {
+        foreach ($metaToSave as $meta) {
+            if (!empty($meta['sid'])) {
+                \app\models\PolicyMeta::savePolicyComment($policyName, $meta['sid'], $meta['comment']);
+            }
+        }
+    }
+
+    public function deletePolicy($name)
+    {
+        $cmd = sprintf('mc admin policy remove %s %s 2>&1',
+            escapeshellarg($this->alias),
+            escapeshellarg($name)
         );
-        @unlink($tmp);
-
+        
+        return $this->exec($cmd, 'Ошибка удаления политики') !== false;
+    }
+    
+    private function exec($cmd, $errorMessage)
+    {
+        $output = [];
+        $code = 0;
+        
+        exec($cmd, $output, $code);
+        
         if ($code !== 0) {
-            Yii::error("mc admin policy create returned code $code:\n".implode("\n", $out));
+            Yii::error("{$errorMessage} (код {$code}): " . implode("\n", $output));
             return false;
         }
-        return true;
+        
+        return $output;
     }
 
-    /** Создать политику */
-    public function createPolicy(string $name, array $statements): bool
-    {
-        $policy = [
-            'Version'   => '2012-10-17',
-            'Statement' => $statements,
-        ];
-
-        // Сохраняем во временный файл
-        $tmp = Yii::getAlias('@runtime') . "/policy-{$name}.json";
-        file_put_contents($tmp, json_encode($policy, JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT));
-
-        exec(
-          sprintf('mc admin policy create "%s" "%s" "%s"', $this->alias, $name, $tmp)
-          . ' 2>&1',
-          $_,
-          $code
-        );
-        @unlink($tmp);
-
-        return $code === 0;
-    }
-
-
-
-    /**
-     * Удалить политику (в этой версии mc команда называется remove, а не delete)
-     */
-    public function deletePolicy(string $name): bool
-    {
-        $cmd = sprintf(
-            'mc admin policy remove %s %s 2>&1',
-            escapeshellarg($this->alias),
-            escapeshellarg($name)
-        );
-        exec($cmd, $out, $code);
-        if ($code !== 0) {
-            Yii::error("deletePolicy failed (cmd: {$cmd}):\n" . implode("\n", $out));
-        }
-        return $code === 0;
-    }
-
-/**
- * Экспортирует JSON политики в файл (для редактирования)
- *
- * @param string $name     — имя политики в MinIO
- * @param string $destFile — полный путь, куда сохранить JSON
- * @return bool
- */
-public function exportPolicy(string $name, string $destFile): bool
-{
-    $cmd = sprintf(
-        'mc admin policy info %s %s --json 2>&1',
-        escapeshellarg($this->alias),
-        escapeshellarg($name)
-    );
-    exec($cmd, $out, $code);
-    if ($code !== 0) {
-        Yii::error("exportPolicy failed (code={$code}):\n" . implode("\n", $out));
-        return false;
-    }
-    $json = implode("\n", $out);
-    if (file_put_contents($destFile, $json) === false) {
-        Yii::error("exportPolicy: не удалось записать файл {$destFile}");
-        return false;
-    }
-    return true;
-}
-
-
-public function getPolicy(string $name): ?array
-{
-    exec(sprintf('mc admin policy info "%s" "%s" --json', $this->alias, $name) . ' 2>&1', $out, $code);
-    if ($code !== 0) {
-        return null;
-    }
-    return json_decode(implode("\n", $out), true);
-}
-
-public function updatePolicy(string $name, array $statements): bool
-{
-    // Удалим старую, а потом создадим заново
-    exec(sprintf('mc admin policy remove "%s" "%s"', $this->alias, $name).' 2>&1', $_, $_);
-    return $this->createPolicy($name, $statements);
-}
-
-
-    /**
-     * Создаёт или обновляет политику из JSON-файла:
-     * сперва пытаемся удалить старую, затем создаём новую.
-     */
-    public function createOrUpdatePolicy(string $name, string $jsonFile): bool
-    {
-        // 1) удаляем старую политику (игнорируем ошибку, если нет)
-        exec(sprintf(
-            'mc admin policy remove %s %s 2>&1',
-            escapeshellarg($this->alias),
-            escapeshellarg($name)
-        ), $_, $_);
-
-        // 2) создаём новую
-        return $this->createPolicy($name, $jsonFile);
-    }
-
-    /**
-     * 
-     * 
-     */
-    public function importPolicy(string $name, string $jsonFile): bool
-    {
-        // mc admin policy import <alias> <policyName> <file.json>
-        $cmd = sprintf(
-            'mc admin policy import %s %s %s 2>&1',
-            escapeshellarg($this->alias),
-            escapeshellarg($name),
-            escapeshellarg($jsonFile)
-        );
-        exec($cmd, $out, $code);
-        if ($code !== 0) {
-            Yii::error("importPolicy failed (cmd: {$cmd}):\n" . implode("\n", $out));
-        }
-        return $code === 0;
-    }
 }

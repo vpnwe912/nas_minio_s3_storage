@@ -1,38 +1,36 @@
 <?php
-use yii\grid\GridView;
+
 use yii\helpers\Html;
 
-/* @var $this yii\web\View */
-/* @var $policies array */
+$this->title = 'Политики MinIO';
+$this->params['breadcrumbs'][] = $this->title;
 ?>
-<h1>Политики MinIO</h1>
+<table class="table table-bordered">
 
-<p><?= Html::a('Создать новую политику', ['create'], ['class'=>'btn btn-success']) ?></p>
+<div class="card-header">
 
-<?= GridView::widget([
-    'dataProvider' => new \yii\data\ArrayDataProvider([
-        'allModels'  => $policies,
-        'pagination' => false,
-    ]),
-    'columns' => [
-        'policy',
-        [
-            'attribute' => 'comments',
-            'label'     => 'Комментарии',
-            'format'    => 'ntext',  // многострочный текст
-        ],
-        [
-            'class'   => 'yii\grid\ActionColumn',
-            'template'=> '{update} {delete}',
-            'buttons' => [
-                'update' => fn($url,$model) =>
-                    Html::a('✎', ['update','name'=>$model['policy']]),
-                'delete' => fn($url,$model) =>
-                    Html::a('🗑', ['delete','name'=>$model['policy']], [
-                        'data'=>['method'=>'post','confirm'=>'Удалить?']
-                    ]),
-            ],
-        ],
-    ],
-]) ?>
+            <div class="float-left">
+                <?= Html::a('Создать политику', ['create'], ['class' => 'btn btn-success']) ?>
+            </div>
+        </div>
 
+    <tr>
+        <th>Название</th>
+        <th>Комментарий</th>
+        <th>Действия</th>
+    </tr>
+    <?php foreach($policies as $policyName): ?>
+        <tr>
+
+            <td><?= Html::encode($policyName) ?></td>
+            <td><?= Html::encode(\app\models\PolicyMeta::getPolicyComment($policyName)) ?></td>
+            <td>
+                <?= Html::a('Редактировать', ['update', 'name' => $policyName], ['class'=>'btn btn-sm btn-primary']) ?>
+                <?= Html::a('Удалить', ['delete', 'name' => $policyName], [
+                    'class'=>'btn btn-sm btn-danger',
+                    'data-confirm'=>'Точно удалить?'
+                ]) ?>
+            </td>
+        </tr>
+    <?php endforeach; ?>
+</table>

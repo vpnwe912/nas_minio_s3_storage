@@ -4,360 +4,324 @@ namespace app\controllers;
 use Yii;
 use yii\web\Controller;
 use yii\filters\AccessControl;
-use yii\web\ForbiddenHttpException;
-use yii\base\DynamicModel;
-use yii\helpers\FileHelper;
+use yii\web\NotFoundHttpException;
+use yii\web\Response;
 use app\models\PolicyForm;
 use app\models\PolicyMeta;
-use yii\helpers\ArrayHelper;
+use app\components\MinioAdminService;
 
 class MinioPolicyController extends Controller
 {
+    private $adminService;
+
+    public function __construct($id, $module, $config = [])
+    {
+        parent::__construct($id, $module, $config);
+        $this->adminService = new MinioAdminService();
+    }
+
     public function behaviors()
     {
         return [
-            'access'=>[
-                'class'=>AccessControl::class,
-                'only'=>['index','create','update','delete'],
-                'rules'=>[
-                    ['actions'=>['index'],  'allow'=>true,'roles'=>['@']],
-                    ['actions'=>['create'], 'allow'=>true,'roles'=>['@']],
-                    ['actions'=>['update'], 'allow'=>true,'roles'=>['@']],
-                    ['actions'=>['delete'], 'allow'=>true,'roles'=>['@']],
+            'access' => [
+                'class' => AccessControl::class,
+                'rules' => [
+                    [
+                        'allow' => true,
+                        'roles' => ['@'],
+                    ],
                 ],
-                'denyCallback'=>fn() => throw new ForbiddenHttpException('У вас нет прав'),
             ],
         ];
     }
 
-    /** Получить имена бакетов из MinioService */
-    protected function getAllBuckets(): array
-    {
-        $svc = Yii::$app->minio;        // ваш MinioService
-        $list = $svc->listBuckets();    // массив [ ['Name'=>'share'], ... ]
-        $names = [];
-        foreach ($list as $b) {
-            $names[] = is_array($b) ? ($b['Name'] ?? '') : ($b->get('Name') ?? '');
-        }
-        return array_filter($names);
-    }
 
-    /** Список всех политик */
+    /**
+     * Список всех политик
+     */
     public function actionIndex()
     {
-        $policies = Yii::$app->minioAdmin->listPolicies();
-    
-        // Добавляем для каждой политики поле comments
-        foreach ($policies as &$policy) {
-            $name = $policy['policy']; // или другой ключ с именем
-            $metas = PolicyMeta::find()->where(['policy_name' => $name])->all();
-            $lines = [];
-            foreach ($metas as $m) {
-                $lines[] = $m->comment;
+        $systemPolicies = [
+            'consoleAdmin',
+            'writeonly',
+            'readonly',
+            'readwrite',
+            'diagnostics'
+        ];
+        $policies = array_filter(
+            $this->adminService->listPolicies(),
+            function($name) use ($systemPolicies) {
+                return !in_array($name, $systemPolicies);
             }
-            // Собираем в многострочную строку
-            $policy['comments'] = implode("\n", $lines);
-        }
-        unset($policy);
-    
-        return $this->render('index', ['policies' => $policies]);
-    }
-
-
-
-    // удаление политики
-    public function actionDelete(string $name)
-    {
-        if (Yii::$app->minioAdmin->deletePolicy($name)) {
-            Yii::$app->session->setFlash('success','Политика удалена');
-        } else {
-            Yii::$app->session->setFlash('error','Ошибка удаления политики');
-        }
-        return $this->redirect(['index']);
-    }
-
-/**
- * Создание новой политики
- */
-public function actionCreate()
-{
-    $admin = Yii::$app->minioAdmin;
-    $model = new PolicyForm();
-
-    // Из контроллера вы уже делаете:
-    $model->statements = [
-        ['sid'=>'','comment'=>'','bucket'=>'','prefix'=>'','actions'=>[]]
-    ];
-
-    if ($model->load(Yii::$app->request->post())) {
-        // 1) Берём «сырые» данные из POST
-        $post      = Yii::$app->request->post('PolicyForm', []);
-        $stmtsPost = $post['statements'] ?? [];
-
-        // 2) Оставляем только те, где выбраны хоть какие-то actions
-        $stmts = array_filter(
-            $stmtsPost,
-            fn($s) => !empty($s['actions'])
         );
-
-        // 3) Если остался хотя бы один блок — генерируем sid, если поле пустое
-        foreach ($stmts as $i => &$s) {
-            if (empty($s['sid'])) {
-                // example: policyName_1, policyName_2 ...
-                $s['sid'] = $model->name . '_' . ($i + 1);
-            }
-        }
-        unset($s);
-
-        // 4) Генерируем JSON-массив для MinIO
-        $awsStmts = $this->generateStatements($stmts);
-
-        if ($admin->createPolicy($model->name, $awsStmts)) {
-            // 5) Сохраняем в БД только отфильтрованные записи
-            foreach ($stmts as $s) {
-                // Это теперь гарантированно уникальные sid
-                $meta = new PolicyMeta();
-                $meta->policy_name = $model->name;
-                $meta->sid         = $s['sid'];
-                $meta->comment     = $s['comment'] ?? '';
-                $meta->save(false);
-            }
-
-            Yii::$app->session->setFlash('success', 'Политика создана');
-            return $this->redirect(['index']);
-        }
-
-        Yii::$app->session->setFlash('error', 'Не удалось создать политику');
-    }
-
-    return $this->render('create', [
-        'model'       => $model,
-        'allBuckets'  => $this->getAllBuckets(),
-        'actionsList' => Yii::$app->params['minioActions'],
-    ]);
-}
+        $comments = [];
     
-
-/**
- * Получает данные политики для формы (из файла)
- */
-protected function loadPolicyForm($name)
-{
-    $model = new \app\models\PolicyForm();
-    $model->name = $name;
-
-    $policyFile = Yii::getAlias('@runtime/minio-policies/' . $name . '.json');
-    if (file_exists($policyFile)) {
-        $json = file_get_contents($policyFile);
-        $data = json_decode($json, true);
-        // statements должны быть массивом
-        $model->statements = isset($data['Statement']) ? $data['Statement'] : [];
-    } else {
-        // Если файла нет — statements пустой массив
-        $model->statements = [];
-    }
-
-    return $model;
-}
-
-protected function extractBucket($resource)
-{
-    // arn:aws:s3:::bucket или arn:aws:s3:::bucket/prefix
-    if (preg_match('#^arn:aws:s3:::(.*?)(/.*?)?$#', $resource, $m)) {
-        return $m[1];
-    }
-    return '';
-}
-
-/**
- * Извлекает префикс из Statement- блока
- *
- * @param array $st AWS-statement
- * @return string префикс (или '*' по умолчанию)
- */
-protected function extractPrefix(array $st): string
-{
-    // 1) Если явно задано условие StringLike для s3:prefix
-    if (
-        isset($st['Condition']['StringLike']) &&
-        isset($st['Condition']['StringLike']['s3:prefix'])
-    ) {
-        return $st['Condition']['StringLike']['s3:prefix'];
-    }
-
-    // 2) Берём ресурс — если это массив, достаём первый элемент
-    $resource = $st['Resource'] ?? '';
-    if (is_array($resource)) {
-        // предполагается, что ARN вида "arn:aws:s3:::bucket/prefix"
-        $resource = reset($resource);
-    }
-
-    // 3) Парсим из ARN префикс после слеша
-    if (
-        is_string($resource) &&
-        preg_match('#^arn:aws:s3:::[^/]+/(.*)$#', $resource, $m)
-    ) {
-        return $m[1];
-    }
-
-    // 4) По умолчанию — весь бакет
-    return '*';
-}
-
-    protected function extractAction($st)
-    {
-        if ($st['Action'] == 's3:ListBucket') return 'ListBucket';
-        return str_replace('s3:', '', $st['Action']);
+        // Загружаем комментарии для всех политик
+        if (!empty($policies)) {
+            $metas = PolicyMeta::find()
+                ->select(['policy_name', 'comment'])
+                ->where(['policy_name' => $policies])
+                ->groupBy(['policy_name', 'sid'])
+                ->indexBy('policy_name')
+                ->all();
+            
+            foreach ($metas as $policyName => $meta) {
+                $comments[$policyName] = $meta->comment;
+            }
+        }
+    
+        return $this->render('index', [
+            'policies' => $policies,
+            'comments' => $comments
+        ]);
     }
 
     /**
-     * Генерирует AWS-statement’ы из данных формы
-     * @param array $statementsData
-     * @return array
+     * Создание новой политики
      */
-    protected function generateStatements(array $statementsData): array
+    public function actionCreate()
     {
-        $statements = [];
-        foreach ($statementsData as $st) {
-            // префиксируем все выбранные действия
-            $actions = array_map(fn($a) => 's3:'.$a, (array)($st['actions'] ?? []));
-            $statements[] = [
-                'Sid'      => $st['sid']     ?? '',
-                'Effect'   => 'Allow',
-                'Action'   => $actions,
-                'Resource' => ["arn:aws:s3:::{$st['bucket']}/{$st['prefix']}*"],
-            ];
+        $model = new PolicyForm();
+        $model->folders = ['']; // первая строка
+        $model->actions = [[]];
+    
+        if ($model->load(Yii::$app->request->post()) && $model->validate()) {
+            $model->folders = array_values($model->folders);
+            $model->actions = array_values($model->actions);
+        
+            if ((new MinioAdminService())->savePolicy($model->name, $model)) {
+                var_dump($model->comment);
+                \app\models\PolicyMeta::savePolicyComment($model->name, $model->comment);
+                Yii::$app->session->setFlash('success', 'Политика успешно обновлена');
+                return $this->redirect(['index']);
+            }
+            Yii::$app->session->setFlash('error', 'Ошибка при обновлении политики');
         }
-        return $statements;
+        return $this->render('create', [
+            'model' => $model,
+            'buckets' => $this->getBucketsList(),
+            'actions' => $this->getAvailableActions()
+        ]);
     }
 
 
-/**
- * Обновление существующей политики
- */
-public function actionUpdate(string $name)
-{
-    $admin = Yii::$app->minioAdmin;
+    /**
+     * Редактирование существующей политики
+     */
+    public function actionUpdate($name)
+    {
+        $policy = (new MinioAdminService())->getPolicy($name);
+        if ($policy === null) {
+            throw new NotFoundHttpException('Политика не найдена');
+        }
 
-    // 1) Загружаем политику из MinIO
-    $policyBody = $admin->getPolicyBody($name);
-    if ($policyBody === null) {
-        Yii::$app->session->setFlash('error', 'Не удалось загрузить политику');
+        $model = new PolicyForm();
+        $model->name = $name;
+        $model->comment = \app\models\PolicyMeta::getPolicyComment($name);
+
+        // Извлекаем bucket и папки
+        $model->folders = [];
+        $model->actions = [];
+        $firstResource = $policy['Statement'][0]['Resource'][0] ?? '';
+        if (preg_match('/arn:aws:s3:::(.+?)\//', $firstResource, $matches)) {
+            $model->bucket = $matches[1];
+        } else {
+            $model->bucket = '';
+        }
+        foreach ($policy['Statement'] as $stmt) {
+            // Достаем actions и все prefix из Resource
+            foreach ($stmt['Resource'] as $res) {
+                if (preg_match('/arn:aws:s3:::[^\/]+\/(.+?)\/\*/', $res, $m)) {
+                    $model->folders[] = $m[1];
+                    $model->actions[] = (array)$stmt['Action'];
+                }
+            }
+        }
+
+        // ОБЯЗАТЕЛЬНО сбрось индексы перед обработкой!
+        if ($model->load(Yii::$app->request->post()) && $model->validate()) {
+            $model->folders = array_values($model->folders);
+            $model->actions = array_values($model->actions);
+        
+            if ((new MinioAdminService())->savePolicy($model->name, $model)) {
+                // всегда отдельно! — это к БД, не к MinIO!
+                var_dump($model->comment);
+                \app\models\PolicyMeta::savePolicyComment($model->name, $model->comment);
+                Yii::$app->session->setFlash('success', 'Политика успешно обновлена');
+                return $this->redirect(['index']);
+            }
+            Yii::$app->session->setFlash('error', 'Ошибка при обновлении политики');
+        }
+
+        return $this->render('update', [
+            'model' => $model,
+            'buckets' => $this->getBucketsList(),
+            'actions' => $this->getAvailableActions()
+        ]);
+    }
+
+
+    
+//     public function actionTestComment()
+// {
+//     $m = new \app\models\PolicyMeta();
+//     $m->policy_name = 'testkey';
+//     $m->sid = 'main';
+//     $m->comment = 'Тест комментарий!';
+//     $m->save(false);
+//     var_dump($m->getAttributes());
+//     die('ok');
+// }
+    
+
+    /**
+     * Удаление политики
+     */
+    public function actionDelete($name)
+    {
+        if ($this->adminService->deletePolicy($name)) {
+            // Удаляем связанные комментарии
+            PolicyMeta::deleteAll(['policy_name' => $name]);
+            Yii::$app->session->setFlash('success', 'Политика удалена');
+        } else {
+            Yii::$app->session->setFlash('error', 'Ошибка при удалении политики');
+        }
+
         return $this->redirect(['index']);
     }
 
-    // 2) Загружаем все комментарии из БД (sid => PolicyMeta)
-    $metaMap = PolicyMeta::find()
-        ->where(['policy_name' => $name])
-        ->indexBy('sid')
-        ->all();
+    /**
+     * Получение списка бакетов
+     */
+    private function getBucketsList()
+    {
+        $buckets = Yii::$app->minio->listBuckets();
+        $bucketNames = array_column($buckets, 'Name');
+        return array_combine($bucketNames, $bucketNames);
+    }
 
-    // 3) Формируем массив для формы, подставляя комментарий из БД
-    $rawStmts  = $policyBody['Statement'] ?? [];
-    $formStmts = [];
-    foreach ($rawStmts as $st) {
-        $sid = $st['Sid'] ?? '';
-        $formStmts[] = [
-            'sid'     => $sid,
-            'comment' => isset($metaMap[$sid]) ? $metaMap[$sid]->comment : '',
-            'bucket'  => $this->extractBucket(
-                is_array($st['Resource']) ? reset($st['Resource']) : ($st['Resource'] ?? '')
-            ),
-            'prefix'  => $this->extractPrefix($st),
-            'actions' => array_map(fn($a) => preg_replace('/^[^:]+:/','',$a),
-                                  (array)($st['Action'] ?? [])),
+    /**
+     * Доступные действия для политик
+     */
+    private function getAvailableActions()
+    {
+        return [
+            's3:GetObject' => 'Чтение объектов',
+            's3:PutObject' => 'Запись объектов',
+            's3:DeleteObject' => 'Удаление объектов',
         ];
     }
 
-    // 4) Заполняем форму
-    $model = new PolicyForm();
-    $model->name       = $name;
-    $model->statements = $formStmts;
-
-    if ($model->load(Yii::$app->request->post())) {
-        // 5) Получаем новые данные из формы
-        $post = Yii::$app->request->post('PolicyForm', []);
-        $postStmts = $post['statements'] ?? [];
-
-        // 6) Автогенерация sid, если пустой
-        foreach ($postStmts as $i => &$stmt) {
-            if (empty($stmt['sid'])) {
-                $stmt['sid'] = $model->name . '_' . ($i + 1);
-            }
+    /**
+     * Подготовка statements для формы
+     */
+    private function prepareFormStatements(array $statements)
+    {
+        $result = [];
+        
+        foreach ($statements as $stmt) {
+            $result[] = [
+                'sid' => $stmt['Sid'] ?? '',
+                'comment' => $this->getCommentForSid($stmt['Sid'] ?? ''),
+                'bucket' => $this->extractBucket($stmt['Resource'] ?? ''),
+                'prefix' => $this->extractPrefix($stmt),
+                'actions' => $this->extractActions($stmt['Action'] ?? [])
+            ];
         }
-        unset($stmt);
-
-        // 7) Генерируем JSON и сохраняем в MinIO
-        $awsStmts = $this->generateStatements($postStmts);
-        if ($admin->putPolicy($model->name, $awsStmts)) {
-            // 8) Синхронизируем БД: обновляем, создаём, удаляем
-            $existing = PolicyMeta::find()
-                ->where(['policy_name' => $model->name])
-                ->indexBy('sid')
-                ->all();
-
-            foreach ($postStmts as $stmt) {
-                $sid     = $stmt['sid'];
-                $comment = $stmt['comment'] ?? '';
-
-                if (isset($existing[$sid])) {
-                    $existing[$sid]->comment = $comment;
-                    $existing[$sid]->save(false);
-                    unset($existing[$sid]);
-                } else {
-                    $meta = new PolicyMeta();
-                    $meta->policy_name = $model->name;
-                    $meta->sid         = $sid;
-                    $meta->comment     = $comment;
-                    $meta->save(false);
-                }
-            }
-            // удаляем старые записи
-            foreach ($existing as $toDelete) {
-                $toDelete->delete();
-            }
-
-            Yii::$app->session->setFlash('success', 'Политика обновлена');
-            return $this->redirect(['index']);
-        }
-        Yii::$app->session->setFlash('error', 'Ошибка при сохранении');
+        
+        return $result;
     }
 
-    return $this->render('update', [
-        'model'       => $model,
-        'allBuckets'  => $this->getAllBuckets(),
-        'actionsList' => Yii::$app->params['minioActions'],
-    ]);
+    /**
+     * Подготовка statements для сохранения
+     */
+    private function prepareStatements(array $formStatements)
+    {
+        $statements = [];
+        
+        foreach ($formStatements as $stmt) {
+            $resources = [];
+            $prefix = trim($stmt['prefix'] ?? '');
+            
+            if (!empty($prefix)) {
+                $resources[] = "arn:aws:s3:::" . $stmt['bucket'] . "/" . $prefix . "/*";
+            } else {
+                $resources[] = "arn:aws:s3:::" . $stmt['bucket'] . "/*";
+            }
 
-}
+            $statements[] = [
+                'Sid' => $stmt['sid'] ?: uniqid('sid_'),
+                'Effect' => 'Allow',
+                'Action' => (array)($stmt['actions'] ?? []),
+                'Resource' => $resources
+            ];
+        }
+        
+        return $statements;
+    }
 
-    
-    
+    /**
+     * Извлечение бакета из ARN
+     */
+    private function extractBucket($resource)
+    {
+        if (is_array($resource)) {
+            $resource = reset($resource);
+        }
 
+        if (preg_match('/arn:aws:s3:::([^\/]+)/', $resource, $matches)) {
+            return $matches[1];
+        }
 
+        return '';
+    }
 
-    
+    /**
+     * Извлечение префикса из ARN
+     */
+    private function extractPrefix(array $statement)
+    {
+        if (isset($statement['Condition']['StringLike']['s3:prefix'][0])) {
+            return rtrim($statement['Condition']['StringLike']['s3:prefix'][0], '*');
+        }
 
+        if (isset($statement['Resource'])) {
+            $resources = (array)$statement['Resource'];
+            foreach ($resources as $resource) {
+                if (preg_match('/arn:aws:s3:::[^\/]+\/(.+?)(?:\*|$)/', $resource, $matches)) {
+                    return $matches[1];
+                }
+            }
+        }
 
-// Преобразует minio policy json в statements для формы
-protected function extractStatements($policyJson)
-{
-    $data = json_decode($policyJson, true);
-    return $data['Statement'] ?? [];
-}
+        return '';
+    }
 
-// Собирает JSON политики из формы (name, statements)
-protected function generatePolicyJson($name, $statements)
-{
-    // Пример простого генератора
-    return json_encode([
-        'Version' => '2012-10-17',
-        'Statement' => $statements,
-    ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-}
+    /**
+     * Извлечение действий из statement
+     */
+    private function extractActions($actions)
+    {
+        $result = [];
+        foreach ((array)$actions as $action) {
+            $result[] = $action;
+        }
+        return $result;
+    }
 
+    /**
+     * Получение комментария по SID
+     */
+    private function getCommentForSid($sid, $policyName = null)
+    {
+        if (empty($sid)) return '';
 
-    
-    
+        $query = PolicyMeta::find()->where(['sid' => $sid]);
+        if ($policyName) {
+            $query->andWhere(['policy_name' => $policyName]);
+        }
 
+        $meta = $query->one();
+        return $meta ? $meta->comment : '';
+    }
 }

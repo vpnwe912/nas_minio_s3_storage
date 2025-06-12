@@ -1,117 +1,63 @@
 <?php
-use yii\bootstrap5\ActiveForm;
-use yii\bootstrap5\Html;
-
-/* @var $this yii\web\View */
-/* @var $model app\models\PolicyForm */
-/* @var $allBuckets array */
-
-$this->title = 'Создать политику';
+use yii\helpers\Html;
+use yii\widgets\ActiveForm;
 ?>
-<h1><?= Html::encode($this->title) ?></h1>
 
-<?php $form = ActiveForm::begin(); ?>
+<div class="policy-form box box-primary">
+    <?php $form = ActiveForm::begin(); ?>
 
-    <?= $form->field($model, 'name')->textInput() ?>
+    <?= $form->field($model, 'name')->textInput(['maxlength' => true]) ?>
+    <?= $form->field($model, 'comment')->textarea(['maxlength' => true, 'rows'=>2]) ?>
+    <?= $form->field($model, 'bucket')->dropDownList($buckets) ?>
 
-    <div id="statements">
-        <!-- Шаблон для JS -->
-        <div class="statement-template d-none">
-            <hr>
-
-            <?= Html::dropDownList('DUMMY[bucket]', null, array_combine($allBuckets,$allBuckets), ['class'=>'form-select']) ?>
-            <?= Html::textInput('DUMMY[prefix]','', ['class'=>'form-control','placeholder'=>'Префикс']) ?>
-            <?= Html::checkboxList(
-                'DUMMY[actions][]',
-                [],
-                $actionsList,
-                ['class'=>'form-check']
-            ) ?>
-            <button type="button" class="btn btn-danger remove-stmt">Удалить</button>
-        </div>
-
-        <!-- Уже заполненные (для нового — один пустой блок из контроллера) -->
-        <?php foreach ($model->statements as $i => $stmt): ?>
-    <div class="statement">
-        <hr>
-        <?php if ($i === 0): // только в первом блоке показываем SID и Комментарий ?>
-            <?= Html::textInput(
-                   "PolicyForm[statements][$i][sid]",
-                   $stmt['sid'],
-                   ['class'=>'form-control','placeholder'=>'Sid']
-               ) ?>
-            <?= Html::textarea(
-                   "PolicyForm[statements][$i][comment]",
-                   $stmt['comment'],
-                   ['class'=>'form-control','placeholder'=>'Комментарий']
-               ) ?>
-        <?php endif; ?>
-
-        <?= Html::dropDownList(
-               "PolicyForm[statements][$i][bucket]",
-               $stmt['bucket'],
-               array_combine($allBuckets,$allBuckets),
-               ['class'=>'form-select']
-           ) ?>
-
-        <?= Html::textInput(
-               "PolicyForm[statements][$i][prefix]",
-               $stmt['prefix'],
-               ['class'=>'form-control','placeholder'=>'Префикс']
-           ) ?>
-
-        <?= Html::checkboxList(
-               "PolicyForm[statements][$i][actions]",
-               $stmt['actions'] ?? [],
-               $actionsList,
-               ['class'=>'form-check']
-           ) ?>
-
-        <button type="button" class="btn btn-danger remove-stmt">Удалить</button>
+    <div id="folders-list">
+        <?php foreach ($model->folders as $i => $folder): ?>
+            <div class="row folder-row">
+                <div class="col-md-4">
+                    <?= Html::activeTextInput($model, "folders[$i]", [
+                        'class' => 'form-control',
+                        'placeholder' => 'Папка (prefix)'
+                    ]) ?>
+                </div>
+                <div class="col-md-6">
+                    <?= Html::checkboxList("PolicyForm[actions][$i]", $model->actions[$i] ?? [], $actions) ?>
+                </div>
+                <div class="col-md-2">
+                    <button type="button" class="btn btn-danger btn-remove-folder">-</button>
+                </div>
+            </div>
+        <?php endforeach; ?>
     </div>
-<?php endforeach; ?>
+    <button type="button" class="btn btn-primary" id="add-folder">+ Добавить папку</button>
 
+    <div class="form-group" style="margin-top: 20px;">
+        <?= Html::submitButton('Сохранить', ['class' => 'btn btn-success']) ?>
     </div>
-
-    <button type="button" id="add-stmt" class="btn btn-secondary mt-2">Добавить Statement</button>
-    <div class="mt-3"><?= Html::submitButton('Сохранить', ['class'=>'btn btn-primary']) ?></div>
-
-<?php ActiveForm::end() ?>
+    <?php ActiveForm::end(); ?>
+</div>
 
 <?php
-$this->registerJs(<<<'JS'
-    const container = document.getElementById('statements');
-    document.getElementById('add-stmt').addEventListener('click', function() {
-        // клонируем шаблон
-        const tmpl  = document.querySelector('.statement-template');
-        const clone = tmpl.cloneNode(true);
-        const idx   = container.querySelectorAll('.statement').length;
-
-        // делаем его видимым и помечаем как statement
-        clone.classList.remove('d-none','statement-template');
-        clone.classList.add('statement');
-
-        // перебираем все input/textarea/select внутри клона
-        clone.querySelectorAll('input[name], textarea[name], select[name]').forEach(el => {
-            // старое имя, например "DUMMY[sid]" или "DUMMY[actions][]"
-            const oldName = el.getAttribute('name');
-            // новое имя: "PolicyForm[statements][<idx>][sid]" и т.п.
-            const newName = oldName.replace(
-                /^DUMMY/,
-                'PolicyForm[statements][' + idx + ']'
-            );
-            el.setAttribute('name', newName);
-        });
-
-        container.appendChild(clone);
-    });
-
-    // кнопка «Удалить»
-    container.addEventListener('click', e => {
-        if (e.target.matches('.remove-stmt')) {
-            e.target.closest('.statement').remove();
-        }
-    });
-JS
-);
+$js = <<<JS
+$('#add-folder').on('click', function(){
+    let idx = $('#folders-list .folder-row').length;
+    let html = `<div class="row folder-row">
+        <div class="col-md-4">
+            <input class="form-control" name="PolicyForm[folders][`+idx+`]" placeholder="Папка (prefix)" />
+        </div>
+        <div class="col-md-6">
+            <label><input type="checkbox" name="PolicyForm[actions][`+idx+`][]" value="s3:GetObject"> Чтение</label>
+            <label><input type="checkbox" name="PolicyForm[actions][`+idx+`][]" value="s3:PutObject"> Запись</label>
+            <label><input type="checkbox" name="PolicyForm[actions][`+idx+`][]" value="s3:DeleteObject"> Удаление</label>
+        </div>
+        <div class="col-md-2">
+            <button type="button" class="btn btn-danger btn-remove-folder">-</button>
+        </div>
+    </div>`;
+    $('#folders-list').append(html);
+});
+$(document).on('click', '.btn-remove-folder', function(){
+    $(this).closest('.folder-row').remove();
+});
+JS;
+$this->registerJs($js);
 ?>

@@ -3,32 +3,38 @@ namespace app\models;
 
 use yii\base\Model;
 
-class PolicyForm extends Model
+class PolicyForm extends \yii\base\Model
 {
     public $name;
-    public $statements = [];
-
-    public function init()
-    {
-        parent::init();
-        // При создании сразу один пустой блок, чтобы «Добавить» работало
-        if ($this->isNewRecord && empty($this->statements)) {
-            $this->statements = [
-                ['sid'=>'','comment'=>'','bucket'=>'','prefix'=>'','actions'=>[]]
-            ];
-        }
-    }
+    public $comment; // Комментарий ко всей политике
+    public $bucket;
+    public $folders = []; // Массив папок (prefix)
+    public $actions = []; // Массив массивов actions (по индексам как папки)
 
     public function rules()
     {
         return [
-            [['name'], 'required'],
-            [['statements'], 'safe'],
+            [['name', 'bucket', 'folders', 'actions'], 'required'],
+            [['comment'], 'string'],
+            ['folders', 'validateFoldersUnique'],
         ];
     }
 
-    public function getIsNewRecord(): bool
+    public function validateFolders($attribute)
     {
-        return $this->name === null;
+        if (count($this->folders) !== count(array_unique($this->folders))) {
+            $this->addError($attribute, 'Папки не должны повторяться.');
+        }
+        foreach ($this->folders as $folder) {
+            if (empty($folder)) {
+                $this->addError($attribute, 'Папка не может быть пустой.');
+            }
+        }
+    }
+    public function validateFoldersUnique($attribute)
+    {
+        if (count($this->folders) !== count(array_unique($this->folders))) {
+            $this->addError($attribute, 'Папки не должны повторяться.');
+        }
     }
 }

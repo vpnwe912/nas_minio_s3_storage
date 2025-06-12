@@ -1,50 +1,65 @@
 <?php
-
 namespace app\models;
 
 use yii\db\ActiveRecord;
 
-/**
- * Модель для хранения комментариев к Sid в политиках MinIO.
- *
- * Таблица: policy_meta
- * Поля:
- * - policy_name (string, PK)
- * - sid         (string, PK)
- * - comment     (text, nullable)
- */
 class PolicyMeta extends ActiveRecord
 {
-    /**
-     * Имя таблицы в БД
-     */
     public static function tableName()
     {
         return '{{%policy_meta}}';
     }
 
-    /**
-     * Правила валидации
-     */
     public function rules()
     {
         return [
             [['policy_name', 'sid'], 'required'],
-            ['policy_name', 'string', 'max' => 255],
-            ['sid',         'string', 'max' => 255],
-            ['comment',     'string'],
+            [['policy_name', 'sid'], 'string', 'max' => 255],
+            ['comment', 'string'],
         ];
+    }
+    
+    // public static function saveComment($policyName, $sid, $comment)
+    // {
+    //     if ($sid === null) return;
+    //     $model = self::findOne(['policy_name' => $policyName, 'sid' => $sid]);
+    //     if (!$model) {
+    //         $model = new self();
+    //         $model->policy_name = $policyName;
+    //         $model->sid = $sid;
+    //     }
+    //     $model->comment = $comment;
+    //     $model->save();
+    // }
+    
+    // public static function getCommentsMap($policyName)
+    // {
+    //     return self::find()
+    //         ->where(['policy_name' => $policyName])
+    //         ->indexBy('sid')
+    //         ->all();
+    // }
+
+
+    // Сохраняет/обновляет комментарий к политике
+    public static function savePolicyComment($policy_name, $comment)
+    {
+        $model = self::findOne(['policy_name' => $policy_name, 'sid' => 'main']);
+        if (!$model) {
+            $model = new self();
+            $model->policy_name = $policy_name;
+            $model->sid = 'main';
+        }
+        $model->comment = $comment;
+
+        $model->save(false);
+    }
+    
+    // Получает комментарий по policy_name (sid = 'main')
+    public static function getPolicyComment($policyName)
+    {
+        $model = self::findOne(['policy_name' => $policyName, 'sid' => 'main']);
+        return $model ? $model->comment : '';
     }
 
-    /**
-     * Человеческие подписи для полей
-     */
-    public function attributeLabels()
-    {
-        return [
-            'policy_name' => 'Имя политики',
-            'sid'         => 'SID заявления',
-            'comment'     => 'Комментарий',
-        ];
-    }
 }

@@ -42,7 +42,7 @@ class MinioGroupController extends Controller
     {
         // список всех пользователей и всех политик
         $allUsers    = ArrayHelper::getColumn(Yii::$app->minioAdmin->listUsers(), 'user');
-        $allPolicies = ArrayHelper::getColumn(Yii::$app->minioAdmin->listPolicies(), 'policy');
+        $allPolicies = Yii::$app->minioAdmin->listPolicies(); // просто массив строк
     
         // модель с group, users[], policies[]
         $model = new DynamicModel(['group','users','policies']);
@@ -119,7 +119,7 @@ class MinioGroupController extends Controller
         /** @var \app\components\MinioAdminService $service */
         $service      = Yii::$app->minioAdmin;
         $allUsers     = ArrayHelper::getColumn($service->listUsers(),    'user');
-        $allPolicies  = ArrayHelper::getColumn($service->listPolicies(), 'policy');
+        $allPolicies = Yii::$app->minioAdmin->listPolicies(); // просто массив строк
     
         // получаем текущее состояние группы
         $info            = $service->getGroupInfo($group);
