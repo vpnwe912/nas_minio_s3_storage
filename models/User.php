@@ -15,6 +15,7 @@ use app\models\Permission;
  * @property string $password_hash
  * @property string $auth_key
  * @property int    $created_at
+ * @property int    $can_login
  *
  * @property string $password      // виртуальное поле для ввода пароля
  * @property int[]  $groupIds      // виртуальное поле для ввода групп
@@ -42,6 +43,7 @@ class User extends ActiveRecord implements IdentityInterface
             ['password', 'required', 'on' => 'create'],
             ['password', 'string', 'min' => 6],
             ['groupIds', 'each', 'rule' => ['integer']],
+            ['can_login', 'boolean'],
         ];
     }
 
