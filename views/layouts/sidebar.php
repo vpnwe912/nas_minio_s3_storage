@@ -99,6 +99,14 @@
                         'icon' => 'cog',
                         'items' => [
                             [
+                                'label' => 'Binaries', 
+                                'url' => ['binaries/index'], 
+                                'active' =>
+                                Yii::$app->controller->id === 'binaries'
+                                || (Yii::$app->controller->id === 'object' && in_array(Yii::$app->controller->action->id, ['browse', 'update', 'create', 'delete'])),
+                                'icon' => ''
+                            ],
+                            [
                                 'label' => 'User & Group',
                                 'icon' => '',
                                 'items' => [

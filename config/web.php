@@ -63,8 +63,8 @@ $config = [
                 ''                                => 'site/index',              // / → site/index
                 '<controller:\w+>'               => '<controller>/index',      // /user → user/index
                 '<controller:\w+>/<action:\w+>'  => '<controller>/<action>',   // /user/create → user/create
-                // можно добавлять свои правила...
-
+                'api/download/<filename:[\w\.\-]+>' => 'api/download',
+                'api/upload-binary' => 'api/upload-binary',
             ],
         ],
 

@@ -291,6 +291,152 @@ class ApiController extends Controller
     }
 
 
+    // ---------------------------- DOWNLOADS ----------------------------
+    public function actionDownloadList()
+    {
+        Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
+
+        $binaries = \app\models\Binary::find()
+            ->orderBy(['name' => SORT_ASC, 'version' => SORT_DESC])
+            ->all();
+
+        $result = [];
+        foreach ($binaries as $bin) {
+            $result[] = [
+                'id'        => $bin->id,
+                'name'      => $bin->name,
+                'filename'  => $bin->filename,
+                'version'   => $bin->version,
+                'size'      => $bin->size,
+                'type'      => $bin->type,
+                'url'       => "/api/download/{$bin->filename}", // Для скачивания
+                'hash'      => $bin->hash,
+                'updated_at'=> $bin->updated_at,
+                'description'=> $bin->description,
+            ];
+        }
+
+        return $result;
+    }
+
+    public function actionDownload($filename)
+    {
+        $binary = \app\models\Binary::findOne(['filename' => $filename]);
+        if (!$binary) {
+            throw new \yii\web\NotFoundHttpException("Файл не найден");
+        }
+
+        $fullPath = Yii::getAlias('@app/' . $binary->path);
+        if (!file_exists($fullPath)) {
+            throw new \yii\web\NotFoundHttpException("Файл отсутствует на сервере");
+        }
+
+        return Yii::$app->response->sendFile($fullPath, $binary->filename, [
+            'mimeType' => 'application/octet-stream',
+            'inline' => false,
+        ]);
+    }
+
+    // POST /api/upload-binary
+    // FormData: file=<файл> name=rclone version=1.66.0 description=...
+    public function actionUploadBinary()
+    {
+        Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
+
+        // Здесь должен быть check на админскую роль
+        $token = Yii::$app->request->post('token');
+        if (!$token) {
+            return [
+                'status' => 'error',
+                'message' => 'Нет токена'
+            ];
+        }
+
+        $file = \yii\web\UploadedFile::getInstanceByName('file');
+        $name = Yii::$app->request->post('name');
+        $version = Yii::$app->request->post('version');
+        $description = Yii::$app->request->post('description');
+
+        if (!$file || !$name || !$version) {
+            return ['status' => 'error', 'message' => 'Не хватает параметров'];
+        }
+
+        $folder = 'downloads/' . $name;
+        $fullFolder = Yii::getAlias('@app/' . $folder);
+        if (!file_exists($fullFolder)) mkdir($fullFolder, 0775, true);
+
+        $savePath = $fullFolder . '/' . $file->name;
+        if (!$file->saveAs($savePath)) {
+            return ['status' => 'error', 'message' => 'Не удалось сохранить файл'];
+        }
+
+        $hash = hash_file('sha256', $savePath);
+        $size = filesize($savePath);
+        $type = pathinfo($file->name, PATHINFO_EXTENSION);
+
+        // Если уже была такая версия — удаляем
+        \app\models\Binary::deleteAll(['name' => $name, 'version' => $version]);
+
+        $binary = new \app\models\Binary([
+            'name'       => $name,
+            'filename'   => $file->name,
+            'version'    => $version,
+            'type'       => $type,
+            'path'       => $folder . '/' . $file->name,
+            'size'       => $size,
+            'hash'       => $hash,
+            'description'=> $description,
+            'updated_at' => date('Y-m-d H:i:s'),
+        ]);
+        $binary->save(false);
+
+        return ['status' => 'success', 'id' => $binary->id];
+    }
+
+    public function actionDeleteBinary($id)
+    {
+        Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
+        
+        // Здесь должен быть check на админскую роль
+        $token = Yii::$app->request->post('token');
+        if (!$token) {
+            return [
+                'status' => 'error',
+                'message' => 'Нет токена'
+            ];
+        }
+
+        $binary = \app\models\Binary::findOne($id);
+        if (!$binary) return ['status' => 'error', 'message' => 'Файл не найден'];
+        $filePath = Yii::getAlias('@app/' . $binary->path);
+        if (file_exists($filePath)) unlink($filePath);
+        $binary->delete();
+
+        return ['status' => 'success'];
+    }
+
+
+    public function actionBinariesVersion()
+    {
+        Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
+
+        // Только последние версии каждого бинаря
+        $binaries = \app\models\Binary::find()
+            ->select(['name', 'version', 'hash', 'updated_at', 'filename'])
+            ->groupBy(['name'])
+            ->all();
+
+        $result = [];
+        foreach ($binaries as $bin) {
+            $result[$bin->name] = [
+                'version'    => $bin->version,
+                'filename'   => $bin->filename,
+                'hash'       => $bin->hash,
+                'updated_at' => $bin->updated_at,
+            ];
+        }
+        return $result;
+    }
 
 
 
@@ -322,6 +468,9 @@ class ApiController extends Controller
         ]);
     }
 
+    // --------------------------- END DOWNLOADS ---------------------------
+
+    // ---------------------------- TOKENS ----------------------------
     public function actionCheckToken()
     {
         Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
