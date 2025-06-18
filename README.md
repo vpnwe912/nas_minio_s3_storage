@@ -49,12 +49,17 @@
    php init --env=Development --overwrite=All
    ```
 
-6. **Применение миграций**
+6. **Скачать бинарные файлы**
+   ```bash
+   php yii binaries/download-all
+   ```
+
+7. **Применение миграций**
    ```bash
    php yii migrate --interactive=0
    ```
 
-7. **Настройка веб-сервера**
+8. **Настройка веб-сервера**
    Настройте веб-сервер (например, Nginx или Apache) на директорию `web/`
 
 ## Настройка Nginx
