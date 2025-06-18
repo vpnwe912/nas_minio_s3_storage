@@ -34,3 +34,13 @@ tests/_support/_generated
 
 #configs dotenv
 .env
+
+# Игнорировать всё в downloads
+downloads/*
+# Но НЕ игнорировать папку downloads и все .gitkeep
+!downloads/
+!downloads/.gitkeep
+!downloads/rclone/
+!downloads/rclone/.gitkeep
+!downloads/minio/
+!downloads/minio/.gitkeep

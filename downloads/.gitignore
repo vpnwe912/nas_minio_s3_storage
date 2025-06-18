@@ -1,2 +1,10 @@
+# Игнорировать все файлы и папки
 *
+# Но не игнорировать сам .gitignore и .gitkeep
 !.gitignore
+!.gitkeep
+!rclone/
+!minio/
+!minio-client-debian/
+!minio-server-debian/
+!winfsp/

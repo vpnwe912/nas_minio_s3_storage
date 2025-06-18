@@ -1,0 +1,5 @@
+# Игнорировать всё
+*
+# Кроме .gitignore и .gitkeep
+!.gitignore
+!.gitkeep
