@@ -76,7 +76,7 @@ NGINX_CONF="/etc/nginx/sites-available/$DOMAIN"
 sudo tee $NGINX_CONF > /dev/null <<EOF
 server {
     listen 80;
-    server_name $DOMAIN www.$DOMAIN;
+    server_name $DOMAIN;
 
     root $PROJECT_PATH/web;
     index index.php index.html;
