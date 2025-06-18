@@ -13,7 +13,9 @@
 ## Установка
 0. установить sudo & git
    ```bash
+   apt update -y && apt upgrade -y
    apt install -y sudo git
+   apt install -y nginx
    ```
 
 1. **Клонирование репозитория**
