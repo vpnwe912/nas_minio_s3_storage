@@ -23,8 +23,8 @@ echo "==== Start and enable MariaDB ===="
 sudo systemctl enable mariadb
 sudo systemctl start mariadb
 
-echo "==== Create database minio with utf8mb4 encoding ===="
-sudo mysql -e "CREATE DATABASE IF NOT EXISTS minio CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+echo "==== Create database minio_manager with utf8mb4 encoding ===="
+sudo mysql -e "CREATE DATABASE IF NOT EXISTS minio_manager CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
 echo "==== Install Certbot ===="
 sudo apt install -y certbot python3-certbot-nginx
