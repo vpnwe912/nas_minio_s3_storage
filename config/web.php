@@ -65,6 +65,9 @@ $config = [
                 '<controller:\w+>/<action:\w+>'  => '<controller>/<action>',   // /user/create → user/create
                 'api/download/<filename:[\w\.\-]+>' => 'api/download',
                 'api/upload-binary' => 'api/upload-binary',
+                'install-minio' => 'minio-install/index',
+                'install-minio/service/<cmd:\w+>' => 'minio-install/service',
+                'install-minio/system-update' => 'minio-install/system-update',
             ],
         ],
 
