@@ -68,7 +68,7 @@ echo "Composer version: $(composer --version)"
 echo "============================="
 
 # === Ввод домена и настройка nginx ===
-read -p "Введите доменное имя для сайта (например, site.ru): " DOMAIN
+read -p "Введите доменное имя для сайта (например, site.com): " DOMAIN
 
 # Определяем путь к проекту (где лежит install.sh)
 PROJECT_PATH="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
