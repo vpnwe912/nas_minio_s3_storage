@@ -323,85 +323,100 @@ public function listUsers(): array
 
 
     public function savePolicy($name, $model)
-    {
-            $policy = [
-            'Version' => '2012-10-17',
-            'Statement' => []
-        ];
-        $debugDir = __DIR__ . '/../runtime/minio-police';
-        if (!is_dir($debugDir)) mkdir($debugDir, 0777, true);
-    
-        $bucket = trim($model->bucket);
-        $folders = array_values($model->folders);
-        $actionsList = array_values($model->actions);
-    
-        // ListBucket
-        $allPrefixes = [];
-        foreach ($folders as $folder) {
-            $allPrefixes[] = trim($folder, '/');
+{
+    $policy = [
+        'Version' => '2012-10-17',
+        'Statement' => []
+    ];
+    $debugDir = __DIR__ . '/../runtime/minio-police';
+    if (!is_dir($debugDir)) mkdir($debugDir, 0777, true);
+
+    $bucket = trim($model->bucket);
+    $folders = array_map('trim', (array)$model->folders);
+    $actionsList = array_values($model->actions);
+
+    // 1. Собираем префиксы для ListBucket
+    $listPrefixes = [];
+    foreach ($folders as $folder) {
+        if ($folder !== '') {
+            $listPrefixes[] = $folder . '/*';
         }
-        $sidList = "List" . ucfirst($bucket) . (count($allPrefixes) > 1 ? "Folders" : "Folder")
-            . "_" . substr(md5(implode(',', $allPrefixes)), 0, 8);
-    
+    }
+    if (!empty($listPrefixes)) {
         $policy['Statement'][] = [
-            'Sid' => $sidList,
-            'Effect' => "Allow",
-            'Action' => ["s3:ListBucket"],
+            'Sid' => 'List' . ucfirst($bucket) . 'Folders_' . substr(md5(implode(',', $listPrefixes)), 0, 8),
+            'Effect' => 'Allow',
+            'Action' => ['s3:ListBucket'],
             'Resource' => ["arn:aws:s3:::$bucket"],
             'Condition' => [
                 'StringLike' => [
-                    's3:prefix' => array_map(fn($p) => "$p/*", $allPrefixes)
+                    's3:prefix' => $listPrefixes
                 ]
             ]
         ];
-    
-        // Group object-actions per unique set
-        $objectActionGroups = [];
-        foreach ($folders as $idx => $folder) {
-            $folder = trim($folder, '/');
-            $actions = $actionsList[$idx] ?? [];
-            $objActions = array_values(array_diff($actions, ['s3:ListBucket']));
-            if (!$objActions) continue;
-            $key = implode(',', $objActions);
-            if (!isset($objectActionGroups[$key])) $objectActionGroups[$key] = [];
-            $objectActionGroups[$key][] = $folder;
-        }
-    
-        foreach ($objectActionGroups as $actionsKey => $prefixes) {
-            $actionsArr = explode(',', $actionsKey);
-            $resources = [];
-            foreach ($prefixes as $prefix) {
-                $resources[] = "arn:aws:s3:::$bucket/$prefix/*";
-            }
-            $policy['Statement'][] = [
-                'Sid' => 'Access' . ucfirst($bucket) . (count($prefixes) > 1 ? "Folders" : "Folder")
-                    . "_" . substr(md5($actionsKey . implode(',', $prefixes)), 0, 8),
-                'Effect' => 'Allow',
-                'Action' => $actionsArr,
-                'Resource' => $resources,
+    } else {
+        // Если нет папок — полный доступ к бакету
+        $policy['Statement'][] = [
+            'Sid' => 'List' . ucfirst($bucket) . 'Root_' . substr(md5($bucket), 0, 8),
+            'Effect' => 'Allow',
+            'Action' => ['s3:ListBucket'],
+            'Resource' => ["arn:aws:s3:::$bucket"]
+        ];
+    }
+
+    // 2. Группируем object actions
+    $objectActionsMap = []; // ключ = implode(',', действия), значение = [ 'folders' => [], 'actions' => [] ]
+    foreach ($folders as $i => $folder) {
+        $actions = array_values(array_diff($actionsList[$i] ?? [], ['s3:ListBucket']));
+        if (empty($actions)) continue;
+        $actionsKey = implode(',', $actions);
+        if (!isset($objectActionsMap[$actionsKey])) {
+            $objectActionsMap[$actionsKey] = [
+                'folders' => [],
+                'actions' => $actions
             ];
         }
-    
-        // DEBUG
-        file_put_contents($debugDir . '/debug_policy.json', json_encode($policy, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        $tmpFile = tempnam(sys_get_temp_dir(), 'minio_policy_');
-        file_put_contents($tmpFile, json_encode($policy, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    
-        // Сохраняем комментарий (один на всю политику)
-        \app\models\PolicyMeta::savePolicyComment($name, $model->comment);
-    
-        try {
-            $cmd = sprintf('mc admin policy create %s %s %s 2>&1',
-                escapeshellarg($this->alias),
-                escapeshellarg($name),
-                escapeshellarg($tmpFile)
-            );
-            $res = $this->exec($cmd, 'Ошибка сохранения политики') !== false;
-            return $res;
-        } finally {
-            @unlink($tmpFile);
-        }
+        $objectActionsMap[$actionsKey]['folders'][] = $folder;
     }
+    // 3. Формируем statements для object actions
+    foreach ($objectActionsMap as $set) {
+        $resources = [];
+        foreach ($set['folders'] as $folder) {
+            if ($folder !== '') {
+                $resources[] = "arn:aws:s3:::$bucket/$folder/*";
+            } else {
+                $resources[] = "arn:aws:s3:::$bucket/*";
+            }
+        }
+        $policy['Statement'][] = [
+            'Sid' => 'Obj' . ucfirst($bucket) . substr(md5(implode('', $resources) . implode(',', $set['actions'])), 0, 8),
+            'Effect' => 'Allow',
+            'Action' => $set['actions'],
+            'Resource' => $resources
+        ];
+    }
+
+    // DEBUG
+    file_put_contents($debugDir . '/debug_policy.json', json_encode($policy, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    $tmpFile = tempnam(sys_get_temp_dir(), 'minio_policy_');
+    file_put_contents($tmpFile, json_encode($policy, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+    // Сохраняем комментарий (один на всю политику)
+    \app\models\PolicyMeta::savePolicyComment($name, $model->comment);
+
+    try {
+        $cmd = sprintf('mc admin policy create %s %s %s 2>&1',
+            escapeshellarg($this->alias),
+            escapeshellarg($name),
+            escapeshellarg($tmpFile)
+        );
+        $res = $this->exec($cmd, 'Ошибка сохранения политики') !== false;
+        return $res;
+    } finally {
+        @unlink($tmpFile);
+    }
+}
+
     
     
     

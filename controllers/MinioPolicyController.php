@@ -86,6 +86,7 @@ class MinioPolicyController extends Controller
         $model->actions = [[]];
     
         if ($model->load(Yii::$app->request->post()) && $model->validate()) {
+
             $model->folders = array_values($model->folders);
             $model->actions = array_values($model->actions);
         
@@ -114,51 +115,95 @@ class MinioPolicyController extends Controller
         if ($policy === null) {
             throw new NotFoundHttpException('Политика не найдена');
         }
-
+    
         $model = new PolicyForm();
         $model->name = $name;
         $model->comment = \app\models\PolicyMeta::getPolicyComment($name);
-
-        // Извлекаем bucket и папки
-        $model->folders = [];
-        $model->actions = [];
-        $firstResource = $policy['Statement'][0]['Resource'][0] ?? '';
-        if (preg_match('/arn:aws:s3:::(.+?)\//', $firstResource, $matches)) {
-            $model->bucket = $matches[1];
-        } else {
-            $model->bucket = '';
+    
+        // === Новый разбор политики ===
+    
+// 1. Ищем bucket только из ListBucket statement
+$model->bucket = '';
+foreach ($policy['Statement'] as $stmt) {
+    if (in_array('s3:ListBucket', (array)($stmt['Action'] ?? []))) {
+        foreach ((array)($stmt['Resource'] ?? []) as $res) {
+            if (preg_match('/arn:aws:s3:::([^\/]+)/', $res, $matches)) {
+                $model->bucket = $matches[1];
+                break 2;
+            }
         }
-        foreach ($policy['Statement'] as $stmt) {
-            // Достаем actions и все prefix из Resource
-            foreach ($stmt['Resource'] as $res) {
-                if (preg_match('/arn:aws:s3:::[^\/]+\/(.+?)\/\*/', $res, $m)) {
-                    $model->folders[] = $m[1];
-                    $model->actions[] = (array)$stmt['Action'];
+    }
+}
+
+// 2. Собираем все prefix (папки)
+$folders = [];
+if ($model->bucket) {
+    foreach ($policy['Statement'] as $stmt) {
+        if (in_array('s3:ListBucket', (array)($stmt['Action'] ?? []))) {
+            if (isset($stmt['Condition']['StringLike']['s3:prefix'])) {
+                foreach ((array)$stmt['Condition']['StringLike']['s3:prefix'] as $prefix) {
+                    $folders[] = rtrim($prefix, '/*');
                 }
             }
         }
+    }
+    $folders = array_unique($folders);
+}
 
-        // ОБЯЗАТЕЛЬНО сбрось индексы перед обработкой!
+// 3. Для каждой папки ищем права (actions)
+$actions = [];
+foreach ($folders as $i => $folder) {
+    $acts = [];
+    foreach ($policy['Statement'] as $stmt) {
+        // Пропускаем ListBucket, он уже обработан
+        if (in_array('s3:ListBucket', (array)($stmt['Action'] ?? []))) {
+            continue;
+        }
+        foreach ((array)($stmt['Resource'] ?? []) as $res) {
+            // Сравниваем папку с arn
+            if ($folder === '') {
+                // полный доступ
+                $pattern = '/arn:aws:s3:::' . preg_quote($model->bucket, '/') . '\/\*$/';
+            } else {
+                $pattern = '/arn:aws:s3:::' . preg_quote($model->bucket, '/') . '\/' . preg_quote($folder, '/') . '\/\*$/';
+            }
+            if (preg_match($pattern, $res)) {
+                foreach ((array)$stmt['Action'] as $action) {
+                    if (!in_array($action, $acts)) {
+                        $acts[] = $action;
+                    }
+                }
+            }
+        }
+    }
+    $actions[$i] = $acts;
+}
+$model->folders = $folders;
+$model->actions = $actions;
+    
+        // === Конец разбора политики ===
+    
+        // Если форма отправлена
         if ($model->load(Yii::$app->request->post()) && $model->validate()) {
+            
             $model->folders = array_values($model->folders);
             $model->actions = array_values($model->actions);
-        
+    
             if ((new MinioAdminService())->savePolicy($model->name, $model)) {
-                // всегда отдельно! — это к БД, не к MinIO!
-                var_dump($model->comment);
                 \app\models\PolicyMeta::savePolicyComment($model->name, $model->comment);
                 Yii::$app->session->setFlash('success', 'Политика успешно обновлена');
                 return $this->redirect(['index']);
             }
             Yii::$app->session->setFlash('error', 'Ошибка при обновлении политики');
         }
-
+    
         return $this->render('update', [
             'model' => $model,
             'buckets' => $this->getBucketsList(),
             'actions' => $this->getAvailableActions()
         ]);
     }
+    
 
 
     

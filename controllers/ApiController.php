@@ -322,7 +322,50 @@ class ApiController extends Controller
         ]);
     }
 
-
+    public function actionCheckToken()
+    {
+        Yii::$app->response->format = \yii\web\Response::FORMAT_JSON;
+        
+        $token = Yii::$app->request->post('token');
+        
+        if (!$token) {
+            return [
+                'status' => 'error',
+                'message' => 'Токен не передан'
+            ];
+        }
+        
+        // Находим запись с токеном
+        $tokenRecord = \app\models\UserToken::findOne(['token' => $token]);
+        
+        if (!$tokenRecord) {
+            return [
+                'status' => 'error',
+                'message' => 'Неверный токен'
+            ];
+        }
+        
+        // Находим пользователя
+        $user = \app\models\User::findOne($tokenRecord->user_id);
+        
+        if (!$user || !$user->can_login) {
+            return [
+                'status' => 'error',
+                'message' => 'Пользователь не найден или учетная запись отключена'
+            ];
+        }
+        
+        // Если всё ок, возвращаем успешный ответ
+        return [
+            'status' => 'success',
+            'user' => [
+                'id' => $user->id,
+                'username' => $user->username,
+                'email' => $user->email
+                // Другие нужные поля
+            ]
+        ];
+    }
 
 
 
