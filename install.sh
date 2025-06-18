@@ -55,6 +55,11 @@ sudo systemctl start php8.3-fpm
 echo "==== Create a minio_manager database with utf8mb4 encoding ===="
 sudo mysql -e "CREATE DATABASE IF NOT EXISTS minio_manager CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
+sudo mysql -e "CREATE DATABASE IF NOT EXISTS minio_manager CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+sudo mysql -e "GRANT ALL PRIVILEGES ON minio_manager.* TO 'minio_user'@'localhost';"
+sudo mysql -e "FLUSH PRIVILEGES;"
+
+
 echo "==== MariaDB and minio_manager database successfully created! ===="
 
 echo "==== All dependencies installed! ===="
