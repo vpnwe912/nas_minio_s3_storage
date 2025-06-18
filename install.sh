@@ -116,7 +116,7 @@ echo "Nginx сайт для $DOMAIN создан и активирован."
 
 # === Установка SSL сертификата через certbot ===
 echo "Запускаем Certbot для $DOMAIN"
-sudo certbot --nginx -d $DOMAIN -d www.$DOMAIN --non-interactive --agree-tos -m admin@$DOMAIN
+sudo certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m admin@$DOMAIN
 
 echo "Let's Encrypt сертификат установлен для $DOMAIN"
 
