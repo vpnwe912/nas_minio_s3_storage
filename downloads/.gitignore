@@ -8,3 +8,5 @@
 !minio-client-debian/
 !minio-server-debian/
 !winfsp/
+!minio-server-windows/
+!minio-client-windows/
