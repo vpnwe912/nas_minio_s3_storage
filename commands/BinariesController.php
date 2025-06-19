@@ -7,7 +7,7 @@ use yii\console\Controller;
 class BinariesController extends Controller
 {
     private $files = [
-        ['folder' => 'downloads/minio-client-debian',   'filename' => 'minio'],
+        ['folder' => 'downloads/minio-client-debian',   'filename' => 'mc'],
         ['folder' => 'downloads/minio-client-windows',  'filename' => 'mc.exe'],
         ['folder' => 'downloads/minio-server-debian',   'filename' => 'minio'],
         ['folder' => 'downloads/minio-server-windows',  'filename' => 'minio.exe'],
